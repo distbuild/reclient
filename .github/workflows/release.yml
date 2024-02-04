@@ -1,0 +1,38 @@
+---
+name: Release
+
+on:
+  push:
+    branches: [main]
+    tags:
+      - v*
+
+jobs:
+  release:
+    name: Released on ${{matrix.os}}
+    runs-on: ${{matrix.os}}
+    strategy:
+      matrix:
+        os: [ubuntu-20.04]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - name: Caching
+        uses: actions/cache@v4
+        with:
+          path: "~/.cache/bazel"
+          key: ${{matrix.os}}-bazel
+      - name: Install
+        run: make install
+      - name: Build
+        run: make build
+      - name: Upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: reclient
+          path: |
+            bazel-bin/cmd/bootstrap/bootstrap_/bootstrap
+            bazel-bin/cmd/dumpstats/dumpstats_/dumpstats
+            bazel-bin/cmd/reproxy/reproxy_/reproxy
+            bazel-bin/cmd/rewrapper/rewrapper_/rewrapper
