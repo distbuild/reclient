@@ -3,7 +3,7 @@ name: Release
 
 on:
   push:
-    branches: [main]
+    branches: [ main ]
     tags:
       - v*
 
@@ -13,7 +13,7 @@ jobs:
     runs-on: ${{matrix.os}}
     strategy:
       matrix:
-        os: [ubuntu-20.04]
+        os: [ ubuntu-20.04 ]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -30,9 +30,31 @@ jobs:
       - name: Upload
         uses: actions/upload-artifact@v4
         with:
-          name: reclient
+          name: reclient-artifact
           path: |
             bazel-bin/cmd/bootstrap/bootstrap_/bootstrap
             bazel-bin/cmd/dumpstats/dumpstats_/dumpstats
             bazel-bin/cmd/reproxy/reproxy_/reproxy
             bazel-bin/cmd/rewrapper/rewrapper_/rewrapper
+  push:
+    name: Pushed on ${{matrix.os}}
+    needs: [ release ]
+    runs-on: ${{matrix.os}}
+    strategy:
+      matrix:
+        os: [ ubuntu-20.04 ]
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: reclient-artifact
+      - name: Push
+        run: |
+          git clone https://gitee.com/distbuild/reclient-release.git
+          git config --global user.name "craftslab"
+          git config --global user.email "angersax@sina.com"
+          cp -r bootstrap/bootstrap_/bootstrap dumpstats/dumpstats_/dumpstats reproxy/reproxy_/reproxy rewrapper/rewrapper_/rewrapper -t reclient-release
+          pushd reclient-release || exit 1
+          git add .
+          git commit -m "feat[gh]: updated from https://github.com/${{github.repository}}/commit/${{github.sha}}"
+          git push https://craftslab:${{ secrets.GITEE_DISTBUILD_TOKEN }}@gitee.com/distbuild/reclient-release.git --all
+          popd || exit 1
