@@ -36,7 +36,7 @@ jobs:
             bazel-bin/cmd/dumpstats/dumpstats_/dumpstats
             bazel-bin/cmd/reproxy/reproxy_/reproxy
             bazel-bin/cmd/rewrapper/rewrapper_/rewrapper
-            bazel-bin/cmd/scandeps/scandeps_server_/scandeps_server
+            bazel-bin/cmd/scandeps/scandeps_/scandeps_server
   push:
     name: Pushed on ${{matrix.os}}
     needs: [ release ]
