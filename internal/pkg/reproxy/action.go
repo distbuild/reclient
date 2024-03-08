@@ -393,6 +393,15 @@ func (a *action) runRemoteRace(ctx, cCtx context.Context, client *rexec.Client, 
 		return raceResult{t: canceled, res: command.NewLocalErrorResult(err)}
 	}
 	a.execContext.GetCachedResult()
+
+	// Always record command and action digests, regardless of race result.
+	if a.rec.RemoteMetadata == nil {
+		a.rec.RemoteMetadata = &lpb.RemoteMetadata{}
+	}
+	partialRemoteMetadata := logger.CommandRemoteMetadataToProto(a.execContext.Metadata)
+	a.rec.RemoteMetadata.ActionDigest = partialRemoteMetadata.GetActionDigest()
+	a.rec.RemoteMetadata.CommandDigest = partialRemoteMetadata.GetCommandDigest()
+
 	if a.execContext.Result == nil {
 		// If action is a cache miss, start remote execution and local execution.
 		log.V(2).Infof("%v: Cache miss, starting race", a.cmd.Identifiers.ExecutionID)
@@ -405,7 +414,7 @@ func (a *action) runRemoteRace(ctx, cCtx context.Context, client *rexec.Client, 
 			return raceResult{t: canceled}
 		default:
 		}
-	} else {
+	} else if a.execContext.Result.Status == command.CacheHitResultStatus {
 		// If action is a cache hit, wait for dl milliseconds, then start local execution.
 		go func() {
 			dl, err := a.forecast.PercentileDownloadLatency(a, downloadPercentileCutoff)
@@ -424,6 +433,13 @@ func (a *action) runRemoteRace(ctx, cCtx context.Context, client *rexec.Client, 
 			log.V(2).Infof("%v: Hold off of %v done, will signal local execution", sl, a.cmd.Identifiers.ExecutionID)
 			close(lCh)
 		}()
+	} else {
+		// If a.execContext.GetCachedResult() must have returned a result, which is
+		// neither a cache hit nor a cache miss, then the result can either be a
+		// remote error or a local error (say, input processing fail). In this case,
+		// we start local execution immediately.
+		log.Warningf("%v: GetCachedResult() returned a result neither cache hit nor cache miss: %v", a.cmd.Identifiers.ExecutionID, a.execContext.Result)
+		close(lCh)
 	}
 	// Store action result before calling DownloadOutputs, which will overwrite the result in the
 	// exec context.
@@ -461,7 +477,17 @@ func (a *action) runLocalRace(ctx, cCtx context.Context, pool *LocalPool) raceRe
 	log.V(2).Infof("%v: Running local", a.cmd.Identifiers.ExecutionID)
 	lr := logger.NewLogRecord()
 	lOE := outerr.NewRecordingOutErr()
-	exitCode, err := pool.Run(ctx, cCtx, a.cmd, a.lbls, lOE, lr)
+
+	cmd := a.duplicateCmd(0)
+	if a.cmd.InputSpec != nil {
+		if len(a.cmdEnvironment) > 0 {
+			if cmd.InputSpec.EnvironmentVariables == nil {
+				cmd.InputSpec.EnvironmentVariables = make(map[string]string)
+			}
+			mergeMaps(cmd.InputSpec.EnvironmentVariables, sliceToMap(a.cmdEnvironment, "="))
+		}
+	}
+	exitCode, err := pool.Run(ctx, cCtx, cmd, a.lbls, lOE, lr)
 	if errors.Is(err, context.Canceled) {
 		// Local did not run due to intentional context cancelation.
 		return raceResult{t: canceled}
@@ -918,4 +944,10 @@ func (a *action) duplicateCmd(idx int) *command.Command {
 	tcmd.Identifiers = &id
 	tcmd.Identifiers.ExecutionID = fmt.Sprintf("%v-%v", tcmd.Identifiers.ExecutionID, idx)
 	return &tcmd
+}
+
+func mergeMaps(dst, src map[string]string) {
+	for k, v := range src {
+		dst[k] = v
+	}
 }

@@ -34,15 +34,3 @@ index 9de9ad8ae2ff..848e86b57c4a 100644
      stamp = 0,
      deps = [
          ":CodeGenTypes",
-diff --git a/utils/bazel/llvm-project-overlay/llvm/config.bzl b/utils/bazel/llvm-project-overlay/llvm/config.bzl
-index b15ec9e1bb39..3e70b04cf193 100644
---- a/utils/bazel/llvm-project-overlay/llvm/config.bzl
-+++ b/utils/bazel/llvm-project-overlay/llvm/config.bzl
-@@ -75,6 +75,7 @@ win32_defines = [
-     # LLVM features
-     r'LTDL_SHLIB_EXT=\".dll\"',
-     r'LLVM_PLUGIN_EXT=\".dll\"',
-+    "HAVE_UNISTD_H=1",
- ]
- 
- # TODO: We should switch to platforms-based config settings to make this easier

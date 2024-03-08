@@ -52,7 +52,28 @@ func parseFlags(ctx context.Context, command []string, workingDir, execRoot stri
 		},
 	}
 	for s.HasNext() {
-		flag, args, values, _ := s.Next()
+		if err := handleJavacFlags(res, &s); err != nil {
+			return nil, err
+		}
+	}
+	return res, nil
+}
+
+func handleJavacFlags(cmdFlags *flags.CommandFlags, scanner *args.Scanner) error {
+	nextRes := scanner.ReadNextFlag()
+	// A temporary CommandFlags structure is used to collect the various dependencies, flags and outputs in the handleArgFunc,
+	// and then the results of that are copied into the CommandFlags structure passed in (cmdFlags).
+	// This is done because if a flag is being processed that is in a rsp file, we don't want to add that flag to
+	// the Flags list; otherwise, the flags will show up on the remote bot twice, one time in the cmd itself,
+	// the second time inside the rsp file. Perhaps a cleaner option is to add a
+	// flag to the handleArgFunc that indicates if the argument is from the command line or from inside a rsp file.
+	f := &flags.CommandFlags{
+		ExecRoot:         cmdFlags.ExecRoot,
+		WorkingDirectory: cmdFlags.WorkingDirectory,
+	}
+	handleArgFunc := func(sc *args.Scanner) error {
+		curr := sc.CurResult
+		flag, args, values := curr.NormalizedKey, curr.Args, curr.Values
 		switch flag {
 		case "-bootclasspath", "-classpath", "-processorpath":
 			deps := strings.Split(values[0], ":")
@@ -61,28 +82,43 @@ func parseFlags(ctx context.Context, command []string, workingDir, execRoot stri
 				if d == "" || d == "." {
 					continue
 				}
-				res.Dependencies = append(res.Dependencies, d)
+				f.Dependencies = append(f.Dependencies, d)
 			}
-			continue
 		case "--system=", "-Aroom.schemaLocation=":
-			res.Dependencies = append(res.Dependencies, values[0])
-			continue
+			f.Dependencies = append(f.Dependencies, values[0])
 		case "-d", "-s":
-			res.OutputDirPaths = append(res.OutputDirPaths, values[0])
-			continue
+			f.OutputDirPaths = append(f.OutputDirPaths, values[0])
 		case "":
-			if strings.HasPrefix(args[0], "@") {
-				rspFile := args[0][1:]
-				res.TargetFilePaths = append(res.TargetFilePaths, rspFile)
-				rspDeps, err := rsp.Parse(filepath.Join(execRoot, workingDir, rspFile))
-				if err != nil {
-					return nil, err
-				}
-				res.Dependencies = append(res.Dependencies, rspDeps...)
-				continue
-			}
+			f.Dependencies = append(f.Dependencies, args[0])
 		}
-		res.Flags = append(res.Flags, &flags.Flag{Value: args[0]})
+
+		for _, arg := range args {
+			f.Flags = append(f.Flags, &flags.Flag{Value: arg})
+		}
+		return nil
 	}
-	return res, nil
+	// Check if this is a rsp file that needs processing or just a normal flag.
+	if strings.HasPrefix(nextRes.Args[0], "@") {
+		rspFile := nextRes.Args[0][1:]
+		cmdFlags.TargetFilePaths = append(cmdFlags.TargetFilePaths, rspFile)
+		if !filepath.IsAbs(rspFile) {
+			rspFile = filepath.Join(cmdFlags.ExecRoot, cmdFlags.WorkingDirectory, rspFile)
+		}
+		cmdFlags.Flags = append(cmdFlags.Flags, &flags.Flag{Value: nextRes.Args[0]})
+		if err := rsp.ParseWithFunc(rspFile, *scanner, handleArgFunc); err != nil {
+			return err
+		}
+		// We don't want to pass along the flags that were in the rsp file, just the
+		// rsp file itself as a flag.
+	} else {
+		if err := handleArgFunc(scanner); err != nil {
+			return err
+		}
+		// We want to pass along flags that were on the command line.
+		cmdFlags.Flags = append(cmdFlags.Flags, f.Flags...)
+	}
+	cmdFlags.Dependencies = append(cmdFlags.Dependencies, f.Dependencies...)
+	cmdFlags.OutputDirPaths = append(cmdFlags.OutputDirPaths, f.OutputDirPaths...)
+	cmdFlags.OutputFilePaths = append(cmdFlags.OutputFilePaths, f.OutputFilePaths...)
+	return nil
 }

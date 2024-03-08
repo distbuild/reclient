@@ -18,13 +18,16 @@
 #ifndef CMD_SCANDEPS_SERVER_SCANDEPS_H_
 #define CMD_SCANDEPS_SERVER_SCANDEPS_H_
 
+#include "api/scandeps/cppscandeps.grpc.pb.h"
+
 // newDepsScanner is responsible for creating the implemented dependency
 // scanner.
 // TODO (b/268656738): remove experimental_deadlock and experimental_segfault
 scandeps::CPPDepsScanner::Service* newDepsScanner(
-    std::function<void()> shutdown_server, const char* process_name, const char *cache_dir,
-    const char *log_dir, int deps_cache_max_mb, bool enable_deps_cache,
-    uint32_t experimental_deadlock, uint32_t experimental_segfault);
+    std::function<void()> shutdown_server, const char* process_name,
+    const char* cache_dir, const char* log_dir, int deps_cache_max_mb,
+    bool enable_deps_cache, uint32_t experimental_deadlock,
+    uint32_t experimental_segfault);
 
 // deleteDepsScanner is responsible for destroying the implemented dependency
 // scanner.

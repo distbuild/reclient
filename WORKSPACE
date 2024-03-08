@@ -16,8 +16,6 @@ load("@bazel_skylib//:workspace.bzl", "bazel_skylib_workspace")
 
 bazel_skylib_workspace()
 
-load("@bazel_skylib//rules:expand_template.bzl", "expand_template")
-
 http_archive(
     name = "io_bazel_rules_go",
     # TODO(b/180953129): Required to build re-client with RBE on windows for now.
@@ -159,6 +157,13 @@ go_repository(
     version = "v0.0.0-20230122075934-ca0b05cb1adb",
 )
 
+go_repository(
+    name = "com_github_gosuri_uilive",
+    importpath = "github.com/gosuri/uilive",
+    sum = "h1:hUEBpQDj8D8jXgtCdBu7sWsy5sbW/5GhuO8KBwJ2jyY=",
+    version = "v0.0.4",
+)
+
 load("//:go_deps.bzl", "shirou_gopsutil_deps")
 
 # gazelle:repository_macro go_deps.bzl%shirou_gopsutil_deps
@@ -187,44 +192,18 @@ http_archive(
     build_file_content = "#empty",
     patch_args = ["-p1"],
     patches = [
-        # Windows GCC tries to canonize path imports paths if their canonization is
-        # form is shorter than the current shown form [1]. For imports of the type:
-        # "extralong\path\..\..", gcc isn't smart enough to just remove the redundant
-        # part of the path and instead makes them absolute. This patch removes all
-        # the ".." includes from the files we care about.
-        # We can also try patching GCC, but even if that's successful, we'd still
-        # need to wait for a release.
-        # 1: https://github.com/gcc-mirror/gcc/blob/16e2427f50c208dfe07d07f18009969502c25dc8/libcpp/files.c#L405
-        "//third_party/patches/llvm:llvm-long-path.patch",
         # For simplicity, we expose the tblgen rule for a binary we use.
         "//third_party/patches/llvm:llvm-bzl-tblgen.patch",
         # This patch picks the right version of assembly files to build libSupport
         # on Windows. Refer to https://github.com/llvm/llvm-project/issues/54685
         # for the corresponding fix to CMake files.
         "//third_party/patches/llvm:llvm-bazel-libsupport.patch",
-        # This patch includes a few linking options required to make gcc on windows
-        # work. We tried upstreaming them but since msvc doesn't need them, the maintainers
-        # decided to make them .bazelrc config options instead. Trying to use bazel
-        # conditions to select on the compiler has been _very_ challenging.
-        # Instead of making them global options, we just stuck them on the necessary
-        # targets to optimze compilation.
-        "//third_party/patches/llvm:llvm-bzl-mingw.patch",
-        # https://github.com/bazelbuild/rules_go/issues/2848
-        # Not ideal, but can't compile binaries without this.
-        "//third_party/patches/llvm:llvm-bzl-static.patch",
-        # Don't link version.lib.
-        # The library is not part of gcc toolchain and require VS SDK to be installed.
-        # It's not needed to build @llvm-project//clang:tooling_dependency_scanning
-        # that's used by clang dependency scanner
-        "//third_party/patches/llvm:llvm-project-overlay-driver.patch",
         # Replace @llvm-raw with @llvm so we can build llvm inside of re-client.
         # In the llvm-project checkout, @llvm-raw is defined the WORKSPACE file
         # and point to the root of llvm-project; However, when we invoke the
         # line `llvm_configure(name = "llvm-project")` below, in the bzl file,
         # @llvm//utils/bazel:configure.bzl, @llvm-raw is not pre-defined.
         "//third_party/patches/llvm:llvm-bzl-config.patch",
-        # Disable @llvm_zstd//:zstd on Windows build
-        "//third_party/patches/llvm:llvm-bzl-zstd.patch",
     ],
     sha256 = LLVM_SHA256,
     strip_prefix = "llvm-project-%s" % LLVM_COMMIT,
@@ -464,12 +443,11 @@ gclient_repository(
     name = "goma",
     base_dir = "client/client",
     build_file = "BUILD.goma",
-    gclient_vars_windows = "checkout_mingw=True",
-    gn_args_linux = "is_debug=false agnostic_build=true",
+    gn_args_linux = "is_debug=false agnostic_build=true use_custom_libcxx=false",
     gn_args_macos_arm64 = "is_debug=false agnostic_build=true target_cpu=\"arm64\"",
     gn_args_macos_x86 = "is_debug=false agnostic_build=true target_cpu=\"x64\"",
-    gn_args_windows = "is_debug=false is_clang=false is_win_gcc=true agnostic_build=true",
-    gn_args_windows_dbg = "is_debug=true is_clang=false is_win_gcc=true agnostic_build=true",
+    gn_args_windows = "is_debug=false is_clang=true is_win_gcc=false agnostic_build=true is_component_build=true",
+    gn_args_windows_dbg = "is_debug=true is_clang=true is_win_gcc=false agnostic_build=true is_component_build=true",
     patches = [
         "//third_party/patches/goma:goma.patch",
         # It seems like on Mac, popen and pclose calls aren't thread safe, which is how we
@@ -479,21 +457,6 @@ gclient_repository(
         # that prevents multi-threaded popen and pclose calls.
         "//third_party/patches/goma:goma_subprocess.patch",
     ],
-    remote = "https://chromium.googlesource.com/infra/goma/client",
-    revision = GOMA_REV,
-)
-
-# This goma is built with clang on Windows and is used by the scandeps service ONLY
-gclient_repository(
-    name = "goma_clang",
-    base_dir = "client/client",
-    build_file = "BUILD.goma",
-    gclient_vars_windows = "checkout_mingw=False",
-    gn_args_linux = "is_debug=false agnostic_build=true",
-    gn_args_macos_arm64 = "is_debug=false agnostic_build=true target_cpu=\"arm64\"",
-    gn_args_macos_x86 = "is_debug=false agnostic_build=true target_cpu=\"x64\"",
-    gn_args_windows = "is_debug=false is_clang=true is_win_gcc=false agnostic_build=true is_component_build=true",
-    gn_args_windows_dbg = "is_debug=true is_clang=true is_win_gcc=false agnostic_build=true is_component_build=true",
     remote = "https://chromium.googlesource.com/infra/goma/client",
     revision = GOMA_REV,
 )
